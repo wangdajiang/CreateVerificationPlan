@@ -59,7 +59,7 @@ namespace VMS.TPS
         public static string QAStudyID_Trilogy = "CT1";
         public static string QAImageID_Trilogy = "ArcCheck";
 
-        public static string QAPatientID_iX = "iX5925";
+        public static string QAPatientID_iX = "iX";
         public static string QAStudyID_iX = "1";
         public static string QAImageID_iX = "MapCheck2";
 
@@ -84,7 +84,7 @@ namespace VMS.TPS
                 ssQA = p.CopyImageFromOtherPatient(QAPatientID_Trilogy, QAStudyID_Trilogy, QAImageID_Trilogy);
             else
             {
-                if (plan.Beams.FirstOrDefault().TreatmentUnit.Id == "iX5925")
+                if (plan.Beams.FirstOrDefault().TreatmentUnit.Id == "iX")
                     ssQA = p.CopyImageFromOtherPatient(QAPatientID_iX, QAStudyID_iX, QAImageID_iX);
                 else
                 {
