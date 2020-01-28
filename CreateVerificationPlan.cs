@@ -59,7 +59,7 @@ namespace VMS.TPS
         public static string QAStudyID_Trilogy = "CT1";
         public static string QAImageID_Trilogy = "ArcCheck";
 
-        public static string QAPatientID_iX = "iX";
+        public static string QAPatientID_iX = "iX5925";
         public static string QAStudyID_iX = "1";
         public static string QAImageID_iX = "MapCheck2";
 
@@ -84,7 +84,7 @@ namespace VMS.TPS
                 ssQA = p.CopyImageFromOtherPatient(QAPatientID_Trilogy, QAStudyID_Trilogy, QAImageID_Trilogy);
             else
             {
-                if (plan.Beams.FirstOrDefault().TreatmentUnit.Id == "iX")
+                if (plan.Beams.FirstOrDefault().TreatmentUnit.Id == "iX5925")
                     ssQA = p.CopyImageFromOtherPatient(QAPatientID_iX, QAStudyID_iX, QAImageID_iX);
                 else
                 {
@@ -245,83 +245,6 @@ namespace VMS.TPS
                 throw new Exception(message);
             }
             return verificationPlan;
-        }
-
-        /// <summary>
-        /// Create a copy of an existing beam (beams are unique to plans).
-        /// </summary>
-        private void CopyBeams(IEnumerable<Beam> originalBeams, ExternalPlanSetup verificationPlan, VVector isocenter, bool getCollimatorAndGantryFromBeam)
-        {
-            foreach (Beam originalBeam in originalBeams)
-            {
-                ExternalBeamMachineParameters MachineParameters =
-                    new ExternalBeamMachineParameters(originalBeam.TreatmentUnit.Id, originalBeam.EnergyModeDisplayName, originalBeam.DoseRate, originalBeam.Technique.Id, string.Empty);
-
-                if (originalBeam.MLCPlanType.ToString() == "VMAT")
-                {
-                    //plan.Course.cop
-                    // Create a new VMAT beam.
-                    var collimatorAngle = getCollimatorAndGantryFromBeam ? originalBeam.ControlPoints.First().CollimatorAngle : 0.0;
-                    var gantryAngleStart = getCollimatorAndGantryFromBeam ? originalBeam.ControlPoints.First().GantryAngle : 0.0;
-                    var gantryAngleEnd = getCollimatorAndGantryFromBeam ? originalBeam.ControlPoints.Last().GantryAngle : 0.0;
-                    var gantryDirection = originalBeam.GantryDirection;
-                    //var couchAngle = getCollimatorAndGantryFromBeam ? originalBeam.ControlPoints.First().PatientSupportAngle : 0.0;
-                    var couchAngle = 0.0;  //mapcheck and arccheck uses no couch kick
-                    var metersetWeights = originalBeam.ControlPoints.Select(cp => cp.MetersetWeight);
-                    var beamWeight = originalBeam.WeightFactor;
-                    var beam = verificationPlan.AddVMATBeam(MachineParameters, metersetWeights, collimatorAngle, gantryAngleStart,
-                        gantryAngleEnd, gantryDirection, couchAngle, isocenter);
-                    // Copy control points from the original beam.
-                    var editableParams = beam.GetEditableParameters();
-                    MessageBox.Show(beam.ControlPoints.Count().ToString());
-                    for (var i = 0; i < editableParams.ControlPoints.Count(); i++)
-                    {
-                        editableParams.ControlPoints.ElementAt(i).LeafPositions = originalBeam.ControlPoints.ElementAt(i).LeafPositions;
-                        editableParams.ControlPoints.ElementAt(i).JawPositions = originalBeam.ControlPoints.ElementAt(i).JawPositions;
-                        editableParams.WeightFactor = originalBeam.WeightFactor;
-                    }
-                    beam.ApplyParameters(editableParams);
-                    beam.Id = "G" + gantryAngleStart + " " + "T" + couchAngle;
-                }
-                if (originalBeam.MLCPlanType.ToString() == "DoseDynamic")
-                {
-                    // Create a new IMRT beam.
-                    //var gantryAngle = getCollimatorAndGantryFromBeam ? originalBeam.ControlPoints.First().GantryAngle : 0.0;
-                    double gantryAngle;
-                    double collimatorAngle;
-                    if (originalBeam.TreatmentUnit.Name == "Trilogy")
-                    {
-                        gantryAngle = getCollimatorAndGantryFromBeam ? originalBeam.ControlPoints.First().GantryAngle : 0.0;
-                        collimatorAngle = getCollimatorAndGantryFromBeam ? originalBeam.ControlPoints.First().CollimatorAngle : 0.0;
-                    }
-
-                    else //ix and only mapcheck
-                    {
-                        gantryAngle = 0.0;
-                        collimatorAngle = 0.0;
-                    }
-
-                    //var couchAngle = getCollimatorAndGantryFromBeam ? originalBeam.ControlPoints.First().PatientSupportAngle : 0.0;
-                    var couchAngle = 0.0;
-                    var metersetWeights = originalBeam.ControlPoints.Select(cp => cp.MetersetWeight);
-                    var beam = verificationPlan.AddSlidingWindowBeam(MachineParameters, metersetWeights, collimatorAngle, gantryAngle,
-                        couchAngle, isocenter);
-                    // Copy control points from the original beam.
-                    var editableParams = beam.GetEditableParameters();
-                    for (var i = 0; i < editableParams.ControlPoints.Count(); i++)
-                    {
-                        editableParams.ControlPoints.ElementAt(i).LeafPositions = originalBeam.ControlPoints.ElementAt(i).LeafPositions;
-                        editableParams.ControlPoints.ElementAt(i).JawPositions = originalBeam.ControlPoints.ElementAt(i).JawPositions;
-                    }
-                    beam.ApplyParameters(editableParams);
-                    beam.Id = "G" + gantryAngle + " " + "T" + couchAngle;
-                }
-                else
-                {
-                    var message = string.Format("Treatment field {0} is not VMAT or IMRT.", originalBeam);
-                    throw new Exception(message);
-                }
-            }
         }
     }
 }
