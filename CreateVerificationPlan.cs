@@ -64,7 +64,7 @@ namespace VMS.TPS
         public static string QAImageID_iX = "MapCheck2";
 
         public static string QAMachine_Trilogy = "Trilogy";
-        public static string QAMachine_iX = "iX5925-Lander";
+        public static string QAMachine_iX = "iX5925";
 
         public static string QAId = "QA";
 
