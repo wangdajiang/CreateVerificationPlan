@@ -63,6 +63,11 @@ namespace VMS.TPS
         public static string QAStudyID_iX = "1";
         public static string QAImageID_iX = "MapCheck2";
 
+        public static string QAMachine_Trilogy = "Trilogy";
+        public static string QAMachine_iX = "iX5925-Lander";
+
+        public static string QAId = "QA";
+
         public Script()
         {
         }
@@ -77,30 +82,52 @@ namespace VMS.TPS
             if (plan == null)
                 throw new ApplicationException("Please load an external beam plan that will be verified.");
 
-            p.BeginModifications();
-            // TODO: look whether the phantom scan exists in this patient before copying it
-            StructureSet ssQA;
-            if (plan.Beams.FirstOrDefault().TreatmentUnit.Name == "Trilogy")
-                ssQA = p.CopyImageFromOtherPatient(QAPatientID_Trilogy, QAStudyID_Trilogy, QAImageID_Trilogy);
-            else
-            {
-                if (plan.Beams.FirstOrDefault().TreatmentUnit.Id == "iX5925")
-                    ssQA = p.CopyImageFromOtherPatient(QAPatientID_iX, QAStudyID_iX, QAImageID_iX);
-                else
-                {
-                    MessageBox.Show(string.Format("Treatment machine {0} in plan not recognized.", plan.Beams.FirstOrDefault().TreatmentUnit.Id));
-                    ssQA = null;
-                }
-            }
-
-            // Get or create course with Id 'IMRTQA'
-            const string courseId = "QA";
-            Course course = p.Courses.Where(o => o.Id == courseId).SingleOrDefault();
+            // Get or create course with Id 'QA'
+            Course course = p.Courses.Where(o => o.Id == QAId).SingleOrDefault();
             if (course == null)
             {
                 course = p.AddCourse();
-                course.Id = courseId;
+                course.Id = QAId;
             }
+            if (course.CompletedDateTime != null)
+                MessageBox.Show("Course QA is set to 'COMPLETED', please set to 'ACTIVE'");
+
+            p.BeginModifications();
+
+            StructureSet ssQA = p.CopyImageFromOtherPatient(QAPatientID_Trilogy, QAStudyID_Trilogy, QAImageID_Trilogy);
+
+            foreach (StructureSet ss in course.Patient.StructureSets)
+            {
+                if (plan.Beams.FirstOrDefault().TreatmentUnit.Name == QAMachine_Trilogy)
+                {
+                    if (ss.Image.Id == QAImageID_Trilogy)
+                    {
+                        ssQA = ss;
+                        break;
+                    }
+                    else
+                        ssQA = p.CopyImageFromOtherPatient(QAPatientID_Trilogy, QAStudyID_Trilogy, QAImageID_Trilogy);
+                }
+                else
+                {
+                    if (plan.Beams.FirstOrDefault().TreatmentUnit.Id == QAMachine_iX)
+                    {
+                        if (ss.Image.Id == QAImageID_iX)
+                        {
+                            ssQA = ss;
+                            break;
+                        }
+                        else
+                            ssQA = p.CopyImageFromOtherPatient(QAPatientID_iX, QAStudyID_iX, QAImageID_iX);
+                    }
+                    else
+                    {
+                        MessageBox.Show(string.Format("Treatment machine {0} in plan not recognized.", plan.Beams.FirstOrDefault().TreatmentUnit.Id));
+                        ssQA = null;
+                    }
+                }
+            }
+
 #if false
         // Create an individual verification plan for each field.
         foreach (var beam in plan.Beams)
@@ -109,13 +136,9 @@ namespace VMS.TPS
         }
 #endif
 
-            string verificationId = "";
-            if (plan.Id.Length >= 13)  //if over 13 chars in Id
-                verificationId = plan.Id.Substring(0, (plan.Id.Length - 1)) + "A";
-            else
-                verificationId = plan.Id + "A";
+
             // Create a verification plan that contains all fields (Composite).
-            ExternalPlanSetup verificationPlan = CreateVerificationPlan(course, plan.Beams, plan, ssQA, verificationId, calculateDose: true);
+            ExternalPlanSetup verificationPlan = CreateVerificationPlan(course, plan.Beams, plan, ssQA, calculateDose: true);
             
             // nagivate back from verificationPlan to verified plan
             PlanSetup verifiedPlan = verificationPlan.VerifiedPlan;
@@ -131,19 +154,27 @@ namespace VMS.TPS
         /// Create verifications plans for a given treatment plan.
         /// </summary>
         public static ExternalPlanSetup CreateVerificationPlan(Course course, IEnumerable<Beam> beams, ExternalPlanSetup verifiedPlan, StructureSet verificationStructures,
-                                                   string planId, bool calculateDose)
+                                                   bool calculateDose)
         {
             var verificationPlan = course.AddExternalPlanSetupAsVerificationPlan(verificationStructures, verifiedPlan);
-
-            verificationPlan.Id = planId;
+            try
+            {
+                verificationPlan.Id = verifiedPlan.Id;
+            }
+            catch (System.ArgumentException)
+            {
+                var message = "Plan already exists in QA course.";
+                throw new Exception(message);
+            }
 
             // Put isocenter to the center of the QAdevice
             VVector isocenter = verificationPlan.StructureSet.Image.UserOrigin;
-
+            var beamList = verifiedPlan.Beams.ToList(); //used for looping later
             foreach (Beam beam in beams)
             {
                 if (beam.IsSetupField)
                     continue;
+                
                 ExternalBeamMachineParameters MachineParameters =
                     new ExternalBeamMachineParameters(beam.TreatmentUnit.Id, beam.EnergyModeDisplayName, beam.DoseRate, beam.Technique.Id, string.Empty);
 
@@ -154,50 +185,49 @@ namespace VMS.TPS
                     var gantryAngleStart = beam.ControlPoints.First().GantryAngle;
                     var gantryAngleEnd = beam.ControlPoints.Last().GantryAngle;
                     var gantryDirection = beam.GantryDirection;
-                    var couchAngle = 0.0;
                     var metersetWeights = beam.ControlPoints.Select(cp => cp.MetersetWeight);
+                    
                     verificationPlan.AddVMATBeam(MachineParameters, metersetWeights, collimatorAngle, gantryAngleStart,
-                        gantryAngleEnd, gantryDirection, couchAngle, isocenter);
-                    beam.Id = "G" + gantryAngleStart + " " + "T" + couchAngle;  //these need to match for verification and treat plan
-                    continue;
-                }
-
-                if (beam.MLCPlanType.ToString() == "DoseDynamic")
-                {
-                    // Create a new IMRT beam.
-                    double gantryAngle;
-                    double collimatorAngle;
-                    if (beam.TreatmentUnit.Name == "Trilogy")
-                    {
-                        gantryAngle = beam.ControlPoints.First().GantryAngle;
-                        collimatorAngle = beam.ControlPoints.First().CollimatorAngle;
-                    }
-
-                    else //ix with only mapcheck
-                    {
-                        gantryAngle = 0.0;
-                        collimatorAngle = 0.0;
-                    }
-
-                    var couchAngle = 0.0;
-                    var metersetWeights = beam.ControlPoints.Select(cp => cp.MetersetWeight);
-                    verificationPlan.AddSlidingWindowBeam(MachineParameters, metersetWeights, collimatorAngle, gantryAngle,
-                        couchAngle, isocenter);
-                    beam.Id = "G" + gantryAngle + " " + "T" + couchAngle;  //these need to match for verification and treat plan
-                    continue;
+                        gantryAngleEnd, gantryDirection, 0.0, isocenter);
+                    continue;                  
                 }
                 else
                 {
-                    var message = string.Format("Treatment field {0} is not VMAT or IMRT.", beam);
-                    throw new Exception(message);
-                }
+                    if (beam.MLCPlanType.ToString() == "DoseDynamic")
+                    {
+                        // Create a new IMRT beam.
+                        double gantryAngle;
+                        double collimatorAngle;
+                        if (beam.TreatmentUnit.Name == "Trilogy") //arccheck
+                        {
+                            gantryAngle = beam.ControlPoints.First().GantryAngle;
+                            collimatorAngle = beam.ControlPoints.First().CollimatorAngle;
+                        }
+
+                        else //ix with only mapcheck
+                        {
+                            gantryAngle = 0.0;
+                            collimatorAngle = 0.0;
+                        }
+
+                        var metersetWeights = beam.ControlPoints.Select(cp => cp.MetersetWeight);
+                        verificationPlan.AddSlidingWindowBeam(MachineParameters, metersetWeights, collimatorAngle, gantryAngle,
+                            0.0, isocenter);
+                        continue;
+                    }
+                    else
+                    {
+                        var message = string.Format("Treatment field {0} is not VMAT or IMRT.", beam);
+                        throw new Exception(message);
+                    }
+                }             
             }
 
+            int i = 0;
             foreach (Beam verificationBeam in verificationPlan.Beams)
             {
-                var gantryAngle = verificationBeam.ControlPoints.First().GantryAngle;
-                var couchAngle = verificationBeam.ControlPoints.First().PatientSupportAngle;
-                verificationBeam.Id = "G" + gantryAngle + " " + "T" + couchAngle;  //these need to match for verification and treat plan
+                verificationBeam.Id = beamList[i].Id;
+                i++;
             }
             
             foreach (Beam verificationBeam in verificationPlan.Beams)
@@ -206,36 +236,38 @@ namespace VMS.TPS
                 {
                     if (verificationBeam.Id == beam.Id)
                     {
-                        if (verificationBeam.MLCPlanType.ToString() == "VMAT" || verificationBeam.MLCPlanType.ToString() == "DoseDynamic")
+                        var editableParams = verificationBeam.GetEditableParameters();
+                        for (var n = 0; n < editableParams.ControlPoints.Count(); n++)
                         {
-                            // Copy control points from the original beam.
-                            var editableParams = beam.GetEditableParameters();
-                            for (var n = 0; n < editableParams.ControlPoints.Count(); n++)
-                            {
-                                editableParams.ControlPoints.ElementAt(n).LeafPositions = beam.ControlPoints.ElementAt(n).LeafPositions;
-                                editableParams.ControlPoints.ElementAt(n).JawPositions = beam.ControlPoints.ElementAt(n).JawPositions;
-                                editableParams.WeightFactor = beam.WeightFactor;
-                            }
-                            editableParams.Isocenter = verificationStructures.Image.UserOrigin;
-                            verificationBeam.ApplyParameters(editableParams);
-                            continue;
+                            editableParams.ControlPoints.ElementAt(n).LeafPositions = beam.ControlPoints.ElementAt(n).LeafPositions;
+                            editableParams.ControlPoints.ElementAt(n).JawPositions = beam.ControlPoints.ElementAt(n).JawPositions;
+                            editableParams.WeightFactor = beam.WeightFactor;
                         }
-                        else
-                            MessageBox.Show("Treatment fields are not VMAT or IMRT.");
+                        verificationBeam.ApplyParameters(editableParams);
+                        continue;
                     }
                 }
             }
             // Set presciption
             const int numberOfFractions = 1;
-            verificationPlan.SetPrescription(numberOfFractions, verifiedPlan.DosePerFraction, treatmentPercentage: 1.0);
+            verificationPlan.SetPrescription(numberOfFractions, verifiedPlan.DosePerFraction, verifiedPlan.TreatmentPercentage);
 
             verificationPlan.SetCalculationModel(CalculationType.PhotonVolumeDose, verifiedPlan.GetCalculationModel(CalculationType.PhotonVolumeDose));
 
-            var res = verificationPlan.CalculateDose();
+            CalculationResult res;
+            if (verificationPlan.Beams.FirstOrDefault().MLCPlanType.ToString() == "DoseDynamic")
+            {
+                var getCollimatorAndGantryAngleFromBeam = beams.Count() > 1;
+                var presetValues = (from beam in beams
+                                    select new KeyValuePair<string, MetersetValue>(beam.Id, beam.Meterset)).ToList();
+                res = verificationPlan.CalculateDoseWithPresetValues(presetValues);
+            }
+            else //vmat
+                res = verificationPlan.CalculateDose();
             if (!res.Success)
             {
                 var message = string.Format("Dose calculation failed for verification plan. Output:\n{0}", res);
-                throw new Exception(message);
+               throw new Exception(message);
             }
             return verificationPlan;
         }
