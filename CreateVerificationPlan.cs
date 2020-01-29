@@ -114,10 +114,9 @@ namespace VMS.TPS
                 verificationId = plan.Id.Substring(0, (plan.Id.Length - 1)) + "A";
             else
                 verificationId = plan.Id + "A";
-
             // Create a verification plan that contains all fields (Composite).
             ExternalPlanSetup verificationPlan = CreateVerificationPlan(course, plan.Beams, plan, ssQA, verificationId, calculateDose: true);
-
+            
             // nagivate back from verificationPlan to verified plan
             PlanSetup verifiedPlan = verificationPlan.VerifiedPlan;
             if (plan != verifiedPlan)
@@ -135,16 +134,19 @@ namespace VMS.TPS
                                                    string planId, bool calculateDose)
         {
             var verificationPlan = course.AddExternalPlanSetupAsVerificationPlan(verificationStructures, verifiedPlan);
-            
+
             verificationPlan.Id = planId;
 
             // Put isocenter to the center of the QAdevice
-            VVector isocenter = verificationStructures.Image.UserOrigin;
+            VVector isocenter = verificationPlan.StructureSet.Image.UserOrigin;
+
             foreach (Beam beam in beams)
             {
+                if (beam.IsSetupField)
+                    continue;
                 ExternalBeamMachineParameters MachineParameters =
                     new ExternalBeamMachineParameters(beam.TreatmentUnit.Id, beam.EnergyModeDisplayName, beam.DoseRate, beam.Technique.Id, string.Empty);
-                
+
                 if (beam.MLCPlanType.ToString() == "VMAT")
                 {
                     // Create a new VMAT beam.
@@ -154,7 +156,6 @@ namespace VMS.TPS
                     var gantryDirection = beam.GantryDirection;
                     var couchAngle = 0.0;
                     var metersetWeights = beam.ControlPoints.Select(cp => cp.MetersetWeight);
-                    var beamWeight = beam.WeightFactor;
                     verificationPlan.AddVMATBeam(MachineParameters, metersetWeights, collimatorAngle, gantryAngleStart,
                         gantryAngleEnd, gantryDirection, couchAngle, isocenter);
                     beam.Id = "G" + gantryAngleStart + " " + "T" + couchAngle;  //these need to match for verification and treat plan
@@ -205,7 +206,7 @@ namespace VMS.TPS
                 {
                     if (verificationBeam.Id == beam.Id)
                     {
-                        if (verificationBeam.MLCPlanType.ToString() == "VMAT")
+                        if (verificationBeam.MLCPlanType.ToString() == "VMAT" || verificationBeam.MLCPlanType.ToString() == "DoseDynamic")
                         {
                             // Copy control points from the original beam.
                             var editableParams = beam.GetEditableParameters();
@@ -215,20 +216,12 @@ namespace VMS.TPS
                                 editableParams.ControlPoints.ElementAt(n).JawPositions = beam.ControlPoints.ElementAt(n).JawPositions;
                                 editableParams.WeightFactor = beam.WeightFactor;
                             }
+                            editableParams.Isocenter = verificationStructures.Image.UserOrigin;
                             verificationBeam.ApplyParameters(editableParams);
                             continue;
                         }
-                        if (verificationBeam.MLCPlanType.ToString() == "DoseDynamic")
-                        {
-                            var editableParams = beam.GetEditableParameters();
-                            for (var n = 0; n < editableParams.ControlPoints.Count(); n++)
-                            {
-                                editableParams.ControlPoints.ElementAt(n).LeafPositions = beam.ControlPoints.ElementAt(n).LeafPositions;
-                                editableParams.ControlPoints.ElementAt(n).JawPositions = beam.ControlPoints.ElementAt(n).JawPositions;
-                            }
-                            verificationBeam.ApplyParameters(editableParams);
-                            continue;
-                        }
+                        else
+                            MessageBox.Show("Treatment fields are not VMAT or IMRT.");
                     }
                 }
             }
