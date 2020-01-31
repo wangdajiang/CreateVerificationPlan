@@ -239,9 +239,10 @@ namespace VMS.TPS
                         var editableParams = verificationBeam.GetEditableParameters();
                         for (var n = 0; n < editableParams.ControlPoints.Count(); n++)
                         {
-                            editableParams.ControlPoints.ElementAt(n).LeafPositions = beam.ControlPoints.ElementAt(n).LeafPositions;
-                            editableParams.ControlPoints.ElementAt(n).JawPositions = beam.ControlPoints.ElementAt(n).JawPositions;
-                            editableParams.WeightFactor = beam.WeightFactor;
+                        var editableParams = beam.GetEditableParameters();
+                        editableParams.Isocenter = verificationPlan.StructureSet.Image.UserOrigin;
+                        verificationBeam.ApplyParameters(editableParams);
+                        continue;
                         }
                         verificationBeam.ApplyParameters(editableParams);
                         continue;
